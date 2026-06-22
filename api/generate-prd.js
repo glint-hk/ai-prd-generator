@@ -52,6 +52,8 @@ Rules:
 - Be specific and opinionated — avoid generic filler like "improve user experience". Name real tools, real metrics, real user types.
 - If the idea is vague, make reasonable assumptions and note them in openQuestions`
 
+const GEMINI_MODEL = 'gemini-2.0-flash'
+
 function stripMarkdownFences(text) {
   return text
     .replace(/^﻿/, '')
@@ -74,47 +76,57 @@ module.exports = async function handler(req, res) {
     })
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.error('ANTHROPIC_API_KEY is not set')
+  if (productIdea.trim().length > 2000) {
+    return res.status(400).json({
+      error: 'Product idea must be under 2000 characters.',
+    })
+  }
+
+  if (!process.env.GEMINI_API_KEY) {
+    console.error('GEMINI_API_KEY is not set')
     return res.status(500).json({
       error: 'Server configuration error. API key not set.',
     })
   }
 
   try {
-    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`
+
+    const geminiRes = await fetch(url, {
       method: 'POST',
-      headers: {
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 4096,
-        system: SYSTEM_PROMPT,
-        messages: [
+        system_instruction: {
+          parts: [{ text: SYSTEM_PROMPT }],
+        },
+        contents: [
           {
             role: 'user',
-            content: `Generate a PRD for this product idea: ${productIdea.trim()}`,
+            parts: [{ text: `Generate a PRD for this product idea: ${productIdea.trim()}` }],
           },
         ],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 8192,
+          responseMimeType: 'application/json',
+        },
       }),
     })
 
-    if (!anthropicRes.ok) {
-      const errBody = await anthropicRes.json().catch(() => ({}))
-      const message = errBody?.error?.message || anthropicRes.statusText
-      console.error('Anthropic API error:', anthropicRes.status, message)
+    if (!geminiRes.ok) {
+      const errBody = await geminiRes.json().catch(() => ({}))
+      const message = errBody?.error?.message || geminiRes.statusText
+      console.error('Gemini API error:', geminiRes.status, message)
       return res.status(502).json({
         error: `AI service error: ${message}`,
       })
     }
 
-    const anthropicData = await anthropicRes.json()
-    const rawText = anthropicData?.content?.[0]?.text
+    const geminiData = await geminiRes.json()
+    const rawText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text
 
     if (!rawText) {
+      console.error('Empty Gemini response:', JSON.stringify(geminiData))
       return res.status(502).json({ error: 'Empty response from AI service.' })
     }
 

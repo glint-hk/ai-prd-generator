@@ -10,7 +10,7 @@
 2. [How It Works — Plain English](#2-how-it-works--plain-english)
 3. [The Mental Model — Key Concepts](#3-the-mental-model--key-concepts)
 4. [Prerequisites — Software You Need](#4-prerequisites--software-you-need)
-5. [Getting Your Anthropic API Key](#5-getting-your-anthropic-api-key)
+5. [Getting Your Gemini API Key](#5-getting-your-gemini-api-key)
 6. [Downloading the Project](#6-downloading-the-project)
 7. [Setting Up the Project Locally](#7-setting-up-the-project-locally)
 8. [Running the App on Your Computer](#8-running-the-app-on-your-computer)
@@ -62,11 +62,11 @@ The JavaScript running in your browser collects your text and sends it to a URL:
 **Step 3 — The API route receives your idea.**
 The file `api/generate-prd.js` runs on Vercel's servers (not in your browser). It validates that your input is at least 10 characters long. It then picks up your secret API key from the server's environment (your browser never sees this key).
 
-**Step 4 — The API route calls Claude.**
-It sends a request to Anthropic's servers at `https://api.anthropic.com/v1/messages`. It passes your product idea plus a very specific system prompt (a set of instructions) that tells Claude to return a structured JSON document.
+**Step 4 — The API route calls Gemini.**
+It sends a request to Google's servers at `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`. It passes your product idea plus a very specific system prompt (a set of instructions) that tells Gemini to return a structured JSON document.
 
-**Step 5 — Claude responds.**
-Anthropic's servers process the request using the Claude Sonnet model and return a JSON object — a structured block of data with all the PRD sections filled in.
+**Step 5 — Gemini responds.**
+Google's servers process the request using the Gemini 2.0 Flash model and return a JSON object — a structured block of data with all the PRD sections filled in.
 
 **Step 6 — The API route sends this back to your browser.**
 The `generate-prd.js` function parses the JSON and returns it to your browser.
@@ -102,7 +102,7 @@ npm stands for Node Package Manager. When you install Node.js, you get npm autom
 
 ### What is an API?
 
-API stands for Application Programming Interface. Think of it like a restaurant menu. You (the customer) don't go into the kitchen — you look at the menu (the API documentation), choose what you want (make a request), and the kitchen (the server) prepares and returns your order (the response). Anthropic published an API for Claude — you send them your text and money, they return the AI's response.
+API stands for Application Programming Interface. Think of it like a restaurant menu. You (the customer) don't go into the kitchen — you look at the menu (the API documentation), choose what you want (make a request), and the kitchen (the server) prepares and returns your order (the response). Google published Gemini as an API — you send them your text and a key, they return the AI's response.
 
 ### What is JSON?
 
@@ -183,31 +183,29 @@ It should print a version number like `33.x.x`.
 
 ---
 
-## 5. Getting Your Anthropic API Key
+## 5. Getting Your Gemini API Key
 
-The AI brain of this app is Claude, made by Anthropic. To use it, you need an API key — a unique secret password that identifies you when you call Anthropic's servers.
+The AI brain of this app is Gemini, made by Google. To use it, you need an API key — a unique secret password that identifies you when you call Google's servers.
 
-**This key costs money to use.** Anthropic charges per "token" (roughly per word processed). Generating one PRD costs approximately $0.01–$0.03 depending on length. New accounts often get free credits.
+**Free tier available.** Google offers a generous free tier for Gemini API — enough for hundreds of PRD generations. Paid usage is charged per token (roughly per word processed).
 
 Here is exactly how to get a key:
 
-**Step 1:** Go to [console.anthropic.com](https://console.anthropic.com)
+**Step 1:** Go to [aistudio.google.com](https://aistudio.google.com)
 
-**Step 2:** Click "Sign up" if you don't have an account. Use your email address. Verify your email when they send you a confirmation link.
+**Step 2:** Sign in with your Google account (Gmail works). No new account needed.
 
-**Step 3:** Once logged in, look at the left sidebar. Click **"API Keys"**.
+**Step 3:** Once logged in, click **"Get API Key"** in the left sidebar.
 
-**Step 4:** Click the **"Create Key"** button.
+**Step 4:** Click **"Create API key"**, then select "Create API key in new project" (or an existing project if you have one).
 
-**Step 5:** Give your key a name (e.g., "prd-generator") — this is just a label for you.
+**Step 5:** Your key will be generated and displayed immediately. It will be a long string of characters. Copy it now.
 
-**Step 6:** Click **"Create Key"**. A long string of characters will appear, starting with `sk-ant-`. This is your API key.
+**CRITICAL:** Save this key somewhere safe (like a password manager or a notes app). You can always retrieve it again from Google AI Studio, but treat it as a password.
 
-**CRITICAL:** Copy this key immediately and save it somewhere safe (like a password manager or a notes app). Anthropic will only show it to you once. If you lose it, you'll need to create a new one.
+**Step 6 (optional):** If you expect heavy usage, set up a billing account at [console.cloud.google.com](https://console.cloud.google.com) — but the free tier is sufficient for personal/portfolio use.
 
-**Step 7:** Set up billing. Go to **"Billing"** in the left sidebar, add a credit card, and add some credits (starting with $5 is plenty for testing).
-
-**Keep your API key secret.** Anyone who has it can use your Anthropic credits. Never paste it into a chat, email, or public file. This project is designed so the key lives only on the server — never in your browser.
+**Keep your API key secret.** Anyone who has it can use your Google AI credits. Never paste it into a chat, email, or public file. This project is designed so the key lives only on the server — never in your browser.
 
 ---
 
@@ -281,12 +279,12 @@ copy .env.local.example .env.local
 
 Now open the `.env.local` file in a text editor. The file will contain:
 ```
-ANTHROPIC_API_KEY=your_key_here
+GEMINI_API_KEY=your_key_here
 ```
 
 Replace `your_key_here` with your actual API key from Step 5. For example:
 ```
-ANTHROPIC_API_KEY=sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890
+GEMINI_API_KEY=AIzaSyAbcDefGhiJklMnoPqrStuvWxyz1234567
 ```
 
 Save the file. Do not add spaces, quotes, or anything else around the key.
@@ -539,21 +537,21 @@ The most complex component. It receives the full PRD data object as a prop and r
 
 This is the serverless function — the server-side code that runs on Vercel's infrastructure, not in the user's browser. This is the most security-critical file.
 
-**Why it exists separately:** The Anthropic API key must never be in browser-side code. If it were in the frontend JavaScript, any user could open the browser's developer tools, find the key, and use your Anthropic credits. By putting the API call in a serverless function, the key lives only on Vercel's servers.
+**Why it exists separately:** The Gemini API key must never be in browser-side code. If it were in the frontend JavaScript, any user could open the browser's developer tools, find the key, and use your Google AI credits. By putting the API call in a serverless function, the key lives only on Vercel's servers.
 
 **What it does step by step:**
 1. Rejects any request that isn't a POST (returns HTTP 405)
 2. Reads `productIdea` from the request body
 3. Validates it exists and is at least 10 characters (returns HTTP 400 if not)
-4. Checks that `ANTHROPIC_API_KEY` is set in the environment (returns HTTP 500 if not)
-5. Calls `https://api.anthropic.com/v1/messages` with the system prompt and user's idea
-6. If Anthropic returns an error, logs it and returns HTTP 502
-7. Extracts the text from Anthropic's response
-8. Strips any markdown code fences (```json ... ```) that Claude might wrap the response in despite being told not to
+4. Checks that `GEMINI_API_KEY` is set in the environment (returns HTTP 500 if not)
+5. Calls `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent` with the system prompt and user's idea, requesting JSON output via `responseMimeType: "application/json"`
+6. If Gemini returns an error, logs it and returns HTTP 502
+7. Extracts the text from Gemini's response (`candidates[0].content.parts[0].text`)
+8. Strips any markdown code fences as a safety fallback, then parses the JSON
 9. Parses the cleaned text as JSON
 10. Returns the parsed JSON to the browser with HTTP 200
 
-**The system prompt:** The long string at the top of the file. It instructs Claude on exactly what to do, what structure to use, and what rules to follow. The quality of the output is entirely determined by the quality of this prompt.
+**The system prompt:** The long string at the top of the file. It instructs Gemini on exactly what to do, what structure to use, and what rules to follow. The quality of the output is entirely determined by the quality of this prompt.
 
 ---
 
@@ -595,7 +593,7 @@ This section walks through the complete data flow in plain English.
 3. On click, `generatePRD()` runs: it sets `loading = true` (shows the spinner), then calls `fetch('/api/generate-prd', ...)`
 4. The browser sends an HTTP POST request to `/api/generate-prd` with the body `{"productIdea": "your text here"}`
 5. Vercel's edge network receives this request and routes it to the `api/generate-prd.js` function
-6. The function runs on Node.js, calls Anthropic, gets JSON back, and returns it
+6. The function runs on Node.js, calls Gemini, gets JSON back, and returns it
 7. The browser's `fetch` call resolves — `const data = await res.json()` gives us the PRD object
 8. `setPrd(data)` updates state — React re-renders, replacing LoadingPulse with PRDOutput
 9. PRDOutput renders all nine sections with staggered animations
@@ -652,14 +650,14 @@ With Option B, every time you push new code to GitHub, Vercel automatically rebu
 
 ### Step 3 — Add your API key to Vercel
 
-Your `ANTHROPIC_API_KEY` only exists in `.env.local` on your computer. Vercel doesn't know about it yet. You must add it to Vercel's environment:
+Your `GEMINI_API_KEY` only exists in `.env.local` on your computer. Vercel doesn't know about it yet. You must add it to Vercel's environment:
 
 1. Go to [vercel.com/dashboard](https://vercel.com/dashboard)
 2. Find and click your `ai-prd-generator` project
 3. Click **"Settings"** in the top navigation
 4. Click **"Environment Variables"** in the left sidebar
 5. Click **"Add New"**
-6. In the **"Name"** field: type `ANTHROPIC_API_KEY` exactly (case-sensitive)
+6. In the **"Name"** field: type `GEMINI_API_KEY` exactly (case-sensitive)
 7. In the **"Value"** field: paste your API key
 8. Under **"Environments"**: check "Production", optionally check "Preview"
 9. Click **"Save"**
@@ -768,14 +766,14 @@ Type your computer password when asked (it won't show as you type — that's nor
 
 **"Please provide a product idea of at least 10 characters"** — your input is too short.
 
-**"API key not set"** — the `ANTHROPIC_API_KEY` environment variable is missing. If running locally, check that `.env.local` exists and contains your key. If deployed, check Vercel's environment variables settings.
+**"API key not set"** — the `GEMINI_API_KEY` environment variable is missing. If running locally, check that `.env.local` exists and contains your key. If deployed, check Vercel's environment variables settings.
 
-**"AI service error: ..."** — Anthropic's API returned an error. Common causes:
+**"AI service error: ..."** — Google's Gemini API returned an error. Common causes:
 - Invalid API key (check for typos, spaces, extra quotes)
-- Insufficient credits in your Anthropic account (add credits at console.anthropic.com)
-- Anthropic is experiencing an outage (check status.anthropic.com)
+- Insufficient credits in your Google AI account (add credits at aistudio.google.com)
+- Google is experiencing an outage (check status.cloud.google.com)
 
-**"Failed to parse AI response as JSON"** — Claude returned something that isn't valid JSON. This is rare. Try generating again — the prompt explicitly instructs Claude to return only JSON.
+**"Failed to parse AI response as JSON"** — Gemini returned something that isn't valid JSON. This is rare. Try generating again — the prompt explicitly instructs Gemini to return only JSON.
 
 ### `vercel dev` shows "Error: Could not find project"
 
@@ -794,23 +792,23 @@ During development with `vercel dev` or `npm run dev`, Vite automatically detect
 The API key is set but the function is crashing. Check the logs:
 1. Vercel Dashboard → Your Project → **"Logs"** tab
 2. Look for error messages next to the `/api/generate-prd` requests
-3. The most common cause is `ANTHROPIC_API_KEY` not being set — double-check the Environment Variables in Settings
+3. The most common cause is `GEMINI_API_KEY` not being set — double-check the Environment Variables in Settings
 
-### "Invalid key" from Anthropic
+### "Invalid key" from Google
 
 Your API key is wrong. Common mistakes:
 - Extra space at the beginning or end
 - You copied only part of the key
-- The key was revoked (go to console.anthropic.com and check)
+- The key was deleted (go to aistudio.google.com → "Get API Key" to check or regenerate)
 
 ### The site works locally but not after deployment
 
-Usually caused by missing environment variables on Vercel. The `.env.local` file only exists on your computer — Vercel cannot see it. You must manually add the `ANTHROPIC_API_KEY` in the Vercel dashboard (see [Section 11, Step 3](#step-3--add-your-api-key-to-vercel)).
+Usually caused by missing environment variables on Vercel. The `.env.local` file only exists on your computer — Vercel cannot see it. You must manually add the `GEMINI_API_KEY` in the Vercel dashboard (see [Section 11, Step 3](#step-3--add-your-api-key-to-vercel)).
 
 ### I accidentally committed my API key to Git
 
 Revoke it immediately:
-1. Go to console.anthropic.com → API Keys
+1. Go to aistudio.google.com → API Keys
 2. Find the key you committed and click the delete/revoke button
 3. Create a new key
 4. If the repository is on GitHub, the key is still in the git history even after you delete the file. You can ask GitHub Support to purge it, or rotate the key (which you've already done) to neutralize the risk.
@@ -889,7 +887,7 @@ Revoke it immediately:
 
 **Tailwind CSS** — A "utility-first" CSS framework. Instead of writing custom CSS, you apply small pre-defined classes directly in HTML/JSX: `class="bg-zinc-900 text-sm rounded-xl p-4"`. Faster to write, consistent results.
 
-**Token** — The unit Anthropic uses for billing. Roughly 4 characters = 1 token. Anthropic charges per 1,000 tokens of input + per 1,000 tokens of output.
+**Token** — The unit Google uses for Gemini billing. Roughly 4 characters = 1 token. Google charges per 1,000 tokens of input + per 1,000 tokens of output. The free tier covers ~60 requests per minute.
 
 **Vite** — A fast modern build tool for JavaScript projects. During development, it serves files with instant hot-reloading. For production, it bundles and optimizes everything.
 
