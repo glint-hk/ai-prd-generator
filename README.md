@@ -282,10 +282,7 @@ Now open the `.env.local` file in a text editor. The file will contain:
 GEMINI_API_KEY=your_key_here
 ```
 
-Replace `your_key_here` with your actual API key from Step 5. For example:
-```
-GEMINI_API_KEY=AIzaSyAbcDefGhiJklMnoPqrStuvWxyz1234567
-```
+Replace `your_key_here` with the API key you copied from Google AI Studio.
 
 Save the file. Do not add spaces, quotes, or anything else around the key.
 
