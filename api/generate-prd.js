@@ -52,7 +52,7 @@ Rules:
 - Be specific and opinionated — avoid generic filler like "improve user experience". Name real tools, real metrics, real user types.
 - If the idea is vague, make reasonable assumptions and note them in openQuestions`
 
-const GEMINI_MODEL = 'gemini-2.0-flash'
+const GEMINI_MODELS = ['gemini-3.1-flash-lite', 'gemini-2.0-flash', 'gemini-2.0-flash-lite']
 
 function stripMarkdownFences(text) {
   return text
@@ -89,64 +89,68 @@ module.exports = async function handler(req, res) {
     })
   }
 
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`
+  const requestBody = JSON.stringify({
+    system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: `Generate a PRD for this product idea: ${productIdea.trim()}` }],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.7,
+      maxOutputTokens: 8192,
+      responseMimeType: 'application/json',
+    },
+  })
 
-    const geminiRes = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        system_instruction: {
-          parts: [{ text: SYSTEM_PROMPT }],
-        },
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: `Generate a PRD for this product idea: ${productIdea.trim()}` }],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 8192,
-          responseMimeType: 'application/json',
-        },
-      }),
-    })
+  let lastError = null
 
-    if (!geminiRes.ok) {
-      const errBody = await geminiRes.json().catch(() => ({}))
-      const message = errBody?.error?.message || geminiRes.statusText
-      console.error('Gemini API error:', geminiRes.status, message)
-      return res.status(502).json({
-        error: `AI service error: ${message}`,
-      })
-    }
-
-    const geminiData = await geminiRes.json()
-    const rawText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text
-
-    if (!rawText) {
-      console.error('Empty Gemini response:', JSON.stringify(geminiData))
-      return res.status(502).json({ error: 'Empty response from AI service.' })
-    }
-
-    const cleanText = stripMarkdownFences(rawText)
-
-    let prd
+  for (const model of GEMINI_MODELS) {
     try {
-      prd = JSON.parse(cleanText)
-    } catch (parseErr) {
-      console.error('JSON parse failed. Raw text:', cleanText.slice(0, 500))
-      return res.status(502).json({
-        error: 'Failed to parse AI response as JSON. Please try again.',
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`
+      const geminiRes = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: requestBody,
       })
-    }
 
-    return res.status(200).json(prd)
-  } catch (err) {
-    console.error('Unhandled error in generate-prd:', err)
-    return res.status(500).json({
-      error: err.message || 'Failed to generate PRD. Please try again.',
-    })
+      if (!geminiRes.ok) {
+        const errBody = await geminiRes.json().catch(() => ({}))
+        const message = errBody?.error?.message || geminiRes.statusText
+        console.warn(`Gemini model ${model} failed (${geminiRes.status}): ${message}`)
+        lastError = message
+        // Only fall through to next model on quota errors (429) or server errors (5xx)
+        if (geminiRes.status === 429 || geminiRes.status >= 500) continue
+        return res.status(502).json({ error: `AI service error: ${message}` })
+      }
+
+      const geminiData = await geminiRes.json()
+      const rawText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text
+
+      if (!rawText) {
+        console.error(`Empty response from ${model}:`, JSON.stringify(geminiData))
+        return res.status(502).json({ error: 'Empty response from AI service.' })
+      }
+
+      const cleanText = stripMarkdownFences(rawText)
+
+      let prd
+      try {
+        prd = JSON.parse(cleanText)
+      } catch (parseErr) {
+        console.error('JSON parse failed. Raw text:', cleanText.slice(0, 500))
+        return res.status(502).json({ error: 'Failed to parse AI response as JSON. Please try again.' })
+      }
+
+      return res.status(200).json(prd)
+    } catch (err) {
+      console.error(`Unhandled error with model ${model}:`, err)
+      lastError = err.message
+    }
   }
+
+  return res.status(502).json({
+    error: `AI service error: ${lastError || 'All models failed. Please try again later.'}`,
+  })
 }
