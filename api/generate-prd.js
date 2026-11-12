@@ -58,7 +58,33 @@ Rules:
 - Be specific and opinionated — avoid generic filler like "improve user experience". Name real tools, real metrics, real user types.
 - If the idea is vague, make reasonable assumptions and note them in openQuestions`
 
-const GEMINI_MODELS = ['gemini-3.1-flash-lite', 'gemini-2.0-flash', 'gemini-2.0-flash-lite']
+// Ordered fastest first; gemini-2.5-flash thinks before answering (~20s) so it is the last resort
+const GEMINI_MODELS = ['gemini-3.1-flash-lite', 'gemini-flash-lite-latest', 'gemini-3.5-flash-lite', 'gemini-2.5-flash']
+
+// Keep under the Vercel maxDuration in vercel.json so we always return a clean error
+const TOTAL_BUDGET_MS = 55_000
+const ATTEMPT_TIMEOUT_MS = 35_000
+const MIN_ATTEMPT_MS = 5_000
+
+const isStr = (v) => typeof v === 'string' && v.trim().length > 0
+const isArr = (v) => Array.isArray(v) && v.length > 0
+
+// The UI dereferences every one of these fields, so a missing one would crash the page
+function isValidPrd(p) {
+  return (
+    p && typeof p === 'object' &&
+    isStr(p.productName) && isStr(p.oneLiner) &&
+    isStr(p.problemStatement?.headline) && isStr(p.problemStatement?.context) &&
+    isStr(p.targetUser?.primary) && isArr(p.targetUser?.painPoints) &&
+    isArr(p.coreFeatures) && p.coreFeatures.every((f) => isStr(f?.name) && isStr(f?.priority)) &&
+    isArr(p.successMetrics) && p.successMetrics.every((m) => isStr(m?.metric)) &&
+    isArr(p.outOfScope) &&
+    isArr(p.openQuestions) && p.openQuestions.every((q) => isStr(q?.question)) &&
+    p.recommendedStack && typeof p.recommendedStack === 'object' &&
+    Array.isArray(p.recommendedStack.keyIntegrations) &&
+    isStr(p.sprintOneGoal)
+  )
+}
 
 function stripMarkdownFences(text) {
   return text
@@ -110,53 +136,71 @@ module.exports = async function handler(req, res) {
     },
   })
 
+  const deadline = Date.now() + TOTAL_BUDGET_MS
   let lastError = null
 
   for (const model of GEMINI_MODELS) {
+    const remaining = deadline - Date.now()
+    if (remaining < MIN_ATTEMPT_MS) break
+
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`
       const geminiRes = await fetch(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: requestBody,
+        signal: AbortSignal.timeout(Math.min(ATTEMPT_TIMEOUT_MS, remaining)),
       })
 
       if (!geminiRes.ok) {
         const errBody = await geminiRes.json().catch(() => ({}))
         const message = errBody?.error?.message || geminiRes.statusText
         console.warn(`Gemini model ${model} failed (${geminiRes.status}): ${message}`)
-        lastError = message
-        // Only fall through to next model on quota errors (429) or server errors (5xx)
-        if (geminiRes.status === 429 || geminiRes.status >= 500) continue
-        return res.status(502).json({ error: `AI service error: ${message}` })
+        // 400/401 mean a bad request or API key, which every model would reject the same way
+        if (geminiRes.status === 400 || geminiRes.status === 401) {
+          return res.status(502).json({ error: 'The AI service rejected the request. Please try again later.' })
+        }
+        lastError = 'The AI models are busy right now.'
+        continue
       }
 
       const geminiData = await geminiRes.json()
-      const rawText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text
+      const candidate = geminiData?.candidates?.[0]
+      const rawText = (candidate?.content?.parts || [])
+        .filter((p) => typeof p.text === 'string' && !p.thought)
+        .map((p) => p.text)
+        .join('')
 
       if (!rawText) {
-        console.error(`Empty response from ${model}:`, JSON.stringify(geminiData))
-        return res.status(502).json({ error: 'Empty response from AI service.' })
+        console.warn(`Empty response from ${model} (finishReason: ${candidate?.finishReason}, blockReason: ${geminiData?.promptFeedback?.blockReason})`)
+        lastError = 'The AI returned an empty response.'
+        continue
       }
-
-      const cleanText = stripMarkdownFences(rawText)
 
       let prd
       try {
-        prd = JSON.parse(cleanText)
-      } catch (parseErr) {
-        console.error('JSON parse failed. Raw text:', cleanText.slice(0, 500))
-        return res.status(502).json({ error: 'Failed to parse AI response as JSON. Please try again.' })
+        prd = JSON.parse(stripMarkdownFences(rawText))
+      } catch {
+        console.warn(`Invalid JSON from ${model} (finishReason: ${candidate?.finishReason}):`, rawText.slice(0, 300))
+        lastError = 'The AI returned an incomplete response.'
+        continue
+      }
+
+      if (!isValidPrd(prd)) {
+        console.warn(`Malformed PRD from ${model}:`, JSON.stringify(prd).slice(0, 300))
+        lastError = 'The AI returned an incomplete PRD.'
+        continue
       }
 
       return res.status(200).json(prd)
     } catch (err) {
-      console.error(`Unhandled error with model ${model}:`, err)
-      lastError = err.message
+      const timedOut = err.name === 'TimeoutError' || err.name === 'AbortError'
+      console.warn(`Gemini model ${model} ${timedOut ? 'timed out' : 'errored'}:`, err.message)
+      lastError = timedOut ? 'The AI service took too long to respond.' : 'Could not reach the AI service.'
     }
   }
 
   return res.status(502).json({
-    error: `AI service error: ${lastError || 'All models failed. Please try again later.'}`,
+    error: `${lastError || 'The AI models are busy right now.'} Please try again in a minute.`,
   })
 }
