@@ -40,10 +40,13 @@ The app returns a full structured document with:
 - Who the target user is and their pain points
 - A prioritized feature list (P0/P1/P2)
 - Success metrics with targets
+- Assumptions to test, each tagged with one of Marty Cagan's four product risks (value, usability, feasibility, viability), with an owner, a validation method and a validate-by date
 - What is explicitly out of scope
 - Open questions that need answering
 - A recommended tech stack
 - A goal for the first 2-week sprint
+
+The PRD is not a one-shot output. As you learn, mark each assumption as open, validated or invalidated and add notes. A risk-level panel at the top shows how much of the plan is still unproven. When you're ready, write general feedback and click **Revise PRD with my feedback**: the AI applies your evidence (reworking anything that depended on an invalidated assumption), runs its critique again, and lists what it changed.
 
 This is built as a portfolio piece for a Fractional PM consulting practice — it demonstrates exactly what a PM deliverable looks like.
 

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Sparkles, ShieldAlert, RefreshCw, Zap, FileCheck, CheckCircle2, Loader2 } from 'lucide-react'
+import { Sparkles, ShieldAlert, RefreshCw, Zap, FileCheck, CheckCircle2, Loader2, MessageSquare, FlaskConical } from 'lucide-react'
 
-const STEPS = [
+const GENERATE_STEPS = [
   {
     label: "Analyzing Product Idea",
     description: "Deconstructing core assumptions & identifying key user personas.",
@@ -10,7 +10,7 @@ const STEPS = [
   },
   {
     label: "Devil's Advocate: Critique 1",
-    description: "Stress-testing target audience pain points & finding critical gaps.",
+    description: "Stress-testing value, usability, feasibility & viability risks.",
     icon: ShieldAlert,
     color: 'amber'
   },
@@ -28,7 +28,40 @@ const STEPS = [
   },
   {
     label: "Finalizing PRD",
-    description: "Assembling sprint goals, recommended stack, and structured PRD.",
+    description: "Turning remaining risks into assumptions to test, with owners & dates.",
+    icon: FileCheck,
+    color: 'violet'
+  }
+]
+
+const REFINE_STEPS = [
+  {
+    label: "Reading PM Feedback",
+    description: "Taking in your assumption statuses, notes and comments.",
+    icon: MessageSquare,
+    color: 'indigo'
+  },
+  {
+    label: "Applying Evidence",
+    description: "Building on validated assumptions & reworking what was invalidated.",
+    icon: FlaskConical,
+    color: 'amber'
+  },
+  {
+    label: "Revising Scope & Metrics",
+    description: "Updating features, priorities, metrics and the sprint goal.",
+    icon: RefreshCw,
+    color: 'emerald'
+  },
+  {
+    label: "Devil's Advocate Re-check",
+    description: "Critiquing the revised concept for new gaps.",
+    icon: Zap,
+    color: 'cyan'
+  },
+  {
+    label: "Finalizing Revision",
+    description: "Assembling the revised PRD and a log of what changed.",
     icon: FileCheck,
     color: 'violet'
   }
@@ -66,7 +99,9 @@ function SkeletonCard({ titleWidth, lines, delay }) {
   )
 }
 
-export default function LoadingPulse() {
+export default function LoadingPulse({ mode = 'generate' }) {
+  const isRefine = mode === 'refine'
+  const STEPS = isRefine ? REFINE_STEPS : GENERATE_STEPS
   const [currentStep, setCurrentStep] = useState(0)
 
   useEffect(() => {
@@ -84,7 +119,7 @@ export default function LoadingPulse() {
 
     runNext(0)
     return () => clearTimeout(timer)
-  }, [])
+  }, [STEPS.length])
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -95,10 +130,12 @@ export default function LoadingPulse() {
           Fractional PM Agent is Active
         </div>
         <h2 className="text-2xl font-bold tracking-tight text-zinc-50">
-          Generating Product Requirements Document
+          {isRefine ? 'Revising PRD With Your Feedback' : 'Generating Product Requirements Document'}
         </h2>
         <p className="text-sm text-zinc-400 max-w-xl leading-relaxed">
-          The AI is currently analyzing, questioning, and refining your product concept through double devil's advocate loops to produce an elite-level PM spec.
+          {isRefine
+            ? "The AI is applying your evidence and comments, then running the devil's advocate critique again on the revised concept."
+            : "The AI is currently analyzing, questioning, and refining your product concept through double devil's advocate loops to produce an elite-level PM spec."}
         </p>
       </div>
 

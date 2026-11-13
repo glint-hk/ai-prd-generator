@@ -1,10 +1,10 @@
 const SYSTEM_PROMPT = `You are an elite Product Manager with 10 years experience at top-tier tech companies. Your job is to generate a concise, actionable Product Requirements Document (PRD) from a founder's product idea.
 
 Before generating the final JSON output, perform the following cognitive process internally:
-1. Critique: Adopt a strict "devil's advocate" perspective on the founder's initial product idea. Identify hidden assumptions, critical gaps, potential failure modes, and scoping issues.
+1. Critique: Adopt a strict "devil's advocate" perspective on the founder's initial product idea. Identify hidden assumptions, critical gaps, potential failure modes, and scoping issues. Examine all four product risks (Marty Cagan, Inspired): Value (will customers buy it or choose to use it?), Usability (can users figure out how to use it?), Feasibility (can we build it with the time, skills and technology we have?), Viability (does it work for the business: legal, financial, go-to-market, compliance?).
 2. Refine: Revise and patch the product concept to address these gaps.
 3. Repeat: Conduct a second round of devil's advocate critique on the newly revised concept, identifying any remaining or new gaps, and refine it once more.
-4. Finalize: Produce the final PRD JSON based on this twice-refined, robust version of the product concept.
+4. Finalize: Produce the final PRD JSON based on this twice-refined, robust version of the product concept. The risks you could not eliminate become the assumptions to test.
 
 You must respond ONLY with a valid JSON object — no markdown, no preamble, no explanation outside the JSON. The JSON must follow this exact structure:
 
@@ -34,6 +34,16 @@ You must respond ONLY with a valid JSON object — no markdown, no preamble, no 
       "why": "string — one sentence on why this metric matters"
     }
   ],
+  "assumptions": [
+    {
+      "assumption": "string — a specific, falsifiable belief the plan depends on",
+      "riskType": "Value" | "Usability" | "Feasibility" | "Viability",
+      "owner": "string — the role accountable for testing it, such as Founder / CEO, Product Lead, Design Lead or Tech Lead",
+      "validationMethod": "string — the cheapest experiment that could prove it wrong, with a pass/fail threshold",
+      "validateBy": "string — date in YYYY-MM-DD format",
+      "status": "open"
+    }
+  ],
   "outOfScope": ["string", "string", "string"],
   "openQuestions": [
     {
@@ -53,10 +63,24 @@ You must respond ONLY with a valid JSON object — no markdown, no preamble, no 
 Rules:
 - coreFeatures: minimum 4, maximum 6. Always include at least 2 P0 features.
 - successMetrics: exactly 3
+- assumptions: 4 to 6 items, at least one for each riskType (Value, Usability, Feasibility, Viability). Order them riskiest first. validateBy dates fall between today and 6 weeks from today, with the riskiest assumptions due soonest. status is always "open" for a new PRD.
 - outOfScope: exactly 3 items (important for keeping scope tight)
 - openQuestions: exactly 3
 - Be specific and opinionated — avoid generic filler like "improve user experience". Name real tools, real metrics, real user types.
 - If the idea is vague, make reasonable assumptions and note them in openQuestions`
+
+const REFINE_INSTRUCTIONS = `
+
+REVISION MODE
+You are revising a PRD you produced earlier. A human Product Manager has reviewed it. Their input is authoritative: it reflects evidence from real users and the real business that you do not have.
+- Assumption marked VALIDATED: keep it with status "validated" and keep its owner and validateBy. Build on it with more confidence.
+- Assumption marked INVALIDATED: the evidence says it is false. Remove it from assumptions, then revise every section that depended on it (features, priorities, metrics, scope, sprint goal). Add a replacement assumption with status "open" if the new direction rests on a new belief.
+- Assumption marked OPEN: keep status "open". Apply any PM note attached to it.
+- Apply the PM's general feedback across the whole document.
+- Run the devil's advocate critique again on the revised concept before finalizing.
+Return the complete revised PRD in the same JSON structure, plus one extra field:
+  "changeLog": ["string — one sentence per meaningful change, saying what changed and which PM input caused it"]
+changeLog has 2 to 6 items.`
 
 // Ordered fastest first; gemini-2.5-flash thinks before answering (~20s) so it is the last resort
 const GEMINI_MODELS = ['gemini-3.1-flash-lite', 'gemini-flash-lite-latest', 'gemini-3.5-flash-lite', 'gemini-2.5-flash']
@@ -66,8 +90,40 @@ const TOTAL_BUDGET_MS = 55_000
 const ATTEMPT_TIMEOUT_MS = 35_000
 const MIN_ATTEMPT_MS = 5_000
 
+const RISK_TYPES = ['Value', 'Usability', 'Feasibility', 'Viability']
+const STATUSES = ['open', 'validated', 'invalidated']
+const MAX_FEEDBACK_CHARS = 2000
+const MAX_NOTE_CHARS = 500
+const MAX_PREVIOUS_PRD_CHARS = 30_000
+
 const isStr = (v) => typeof v === 'string' && v.trim().length > 0
 const isArr = (v) => Array.isArray(v) && v.length > 0
+const clip = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
+
+function normalizeRiskType(v) {
+  const s = String(v || '').toLowerCase()
+  return RISK_TYPES.find((r) => s.includes(r.toLowerCase())) || 'Value'
+}
+
+function normalizeStatus(v) {
+  const s = String(v || '').toLowerCase()
+  return STATUSES.includes(s) ? s : 'open'
+}
+
+// Models occasionally drift on enum spelling, so coerce rather than reject the whole PRD
+function normalizeAssumptions(list) {
+  if (!Array.isArray(list)) return []
+  return list
+    .filter((a) => isStr(a?.assumption))
+    .map((a) => ({
+      assumption: a.assumption.trim(),
+      riskType: normalizeRiskType(a.riskType),
+      owner: isStr(a.owner) ? a.owner.trim() : 'Product Lead',
+      validationMethod: isStr(a.validationMethod) ? a.validationMethod.trim() : '',
+      validateBy: isStr(a.validateBy) ? a.validateBy.trim() : '',
+      status: normalizeStatus(a.status),
+    }))
+}
 
 // The UI dereferences every one of these fields, so a missing one would crash the page
 function isValidPrd(p) {
@@ -78,6 +134,7 @@ function isValidPrd(p) {
     isStr(p.targetUser?.primary) && isArr(p.targetUser?.painPoints) &&
     isArr(p.coreFeatures) && p.coreFeatures.every((f) => isStr(f?.name) && isStr(f?.priority)) &&
     isArr(p.successMetrics) && p.successMetrics.every((m) => isStr(m?.metric)) &&
+    isArr(p.assumptions) &&
     isArr(p.outOfScope) &&
     isArr(p.openQuestions) && p.openQuestions.every((q) => isStr(q?.question)) &&
     p.recommendedStack && typeof p.recommendedStack === 'object' &&
@@ -94,13 +151,38 @@ function stripMarkdownFences(text) {
     .trim()
 }
 
+function todayISO() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function buildRefineMessage(productIdea, previousPrd, feedback) {
+  // eslint-disable-next-line no-unused-vars
+  const { changeLog, ...prdBody } = previousPrd
+  const reviewed = previousPrd.assumptions.filter((a) => isStr(a?.assumption))
+  const reviews = reviewed.map((a, i) => {
+    const note = clip(a.pmNote, MAX_NOTE_CHARS)
+    const line = `${i + 1}. [${normalizeStatus(a.status).toUpperCase()}] ${a.assumption.trim()}`
+    return note ? `${line}\n   PM note: ${note}` : line
+  })
+
+  return [
+    `Today's date is ${todayISO()}.`,
+    `Original product idea: ${productIdea}`,
+    `Previous PRD (JSON):\n${JSON.stringify({ ...prdBody, assumptions: normalizeAssumptions(reviewed) })}`,
+    `PM review of assumptions:\n${reviews.join('\n') || '(none)'}`,
+    `PM general feedback:\n${feedback || '(none)'}`,
+    'Produce the revised PRD now.',
+  ].join('\n\n')
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
     return res.status(405).json({ error: 'Method not allowed. Use POST.' })
   }
 
-  const { productIdea } = req.body || {}
+  const { productIdea, previousPrd, feedback: rawFeedback } = req.body || {}
+  const isRefine = previousPrd != null
 
   if (!productIdea || typeof productIdea !== 'string' || productIdea.trim().length < 10) {
     return res.status(400).json({
@@ -114,6 +196,26 @@ module.exports = async function handler(req, res) {
     })
   }
 
+  const feedback = clip(rawFeedback, MAX_FEEDBACK_CHARS)
+
+  if (isRefine) {
+    const malformed =
+      typeof previousPrd !== 'object' ||
+      !isValidPrd({ ...previousPrd, assumptions: normalizeAssumptions(previousPrd.assumptions) })
+    if (malformed) {
+      return res.status(400).json({ error: 'The previous PRD is missing or malformed. Generate a fresh PRD and try again.' })
+    }
+    if (JSON.stringify(previousPrd).length > MAX_PREVIOUS_PRD_CHARS) {
+      return res.status(400).json({ error: 'The previous PRD is too large to revise.' })
+    }
+    const hasReview = previousPrd.assumptions.some(
+      (a) => normalizeStatus(a?.status) !== 'open' || isStr(a?.pmNote)
+    )
+    if (!feedback && !hasReview) {
+      return res.status(400).json({ error: 'Add feedback, a note, or an assumption status before regenerating.' })
+    }
+  }
+
   if (!process.env.GEMINI_API_KEY) {
     console.error('GEMINI_API_KEY is not set')
     return res.status(500).json({
@@ -121,12 +223,16 @@ module.exports = async function handler(req, res) {
     })
   }
 
+  const userMessage = isRefine
+    ? buildRefineMessage(productIdea.trim(), previousPrd, feedback)
+    : `Today's date is ${todayISO()}.\n\nGenerate a PRD for this product idea: ${productIdea.trim()}`
+
   const requestBody = JSON.stringify({
-    system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+    system_instruction: { parts: [{ text: isRefine ? SYSTEM_PROMPT + REFINE_INSTRUCTIONS : SYSTEM_PROMPT }] },
     contents: [
       {
         role: 'user',
-        parts: [{ text: `Generate a PRD for this product idea: ${productIdea.trim()}` }],
+        parts: [{ text: userMessage }],
       },
     ],
     generationConfig: {
@@ -184,6 +290,17 @@ module.exports = async function handler(req, res) {
         console.warn(`Invalid JSON from ${model} (finishReason: ${candidate?.finishReason}):`, rawText.slice(0, 300))
         lastError = 'The AI returned an incomplete response.'
         continue
+      }
+
+      if (prd && typeof prd === 'object') {
+        prd.assumptions = normalizeAssumptions(prd.assumptions)
+        if (isRefine) {
+          prd.changeLog = Array.isArray(prd.changeLog) ? prd.changeLog.filter(isStr) : []
+        } else {
+          // A fresh PRD has had no human review, so nothing can be validated yet
+          prd.assumptions.forEach((a) => { a.status = 'open' })
+          delete prd.changeLog
+        }
       }
 
       if (!isValidPrd(prd)) {

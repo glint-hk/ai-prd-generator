@@ -6,18 +6,37 @@ import ExamplePrompts from './components/ExamplePrompts'
 
 const MAX_DISPLAY_CHARS = 200
 
+function reviewFromPrd(prd) {
+  return (prd.assumptions || []).map((a) => ({ status: a.status || 'open', note: '' }))
+}
+
 export default function App() {
   const [productIdea, setProductIdea] = useState('')
   const [prd, setPrd] = useState(null)
-  const [loading, setLoading] = useState(false)
+  const [prdIdea, setPrdIdea] = useState('')
+  const [revision, setRevision] = useState(1)
+  const [review, setReview] = useState([])
+  const [feedback, setFeedback] = useState('')
+  const [loadingMode, setLoadingMode] = useState(null)
   const [error, setError] = useState(null)
+  const [refineError, setRefineError] = useState(null)
+  const loading = loadingMode !== null
+
+  const acceptPrd = useCallback((data, idea, nextRevision) => {
+    setPrd(data)
+    setPrdIdea(idea)
+    setRevision(nextRevision)
+    setReview(reviewFromPrd(data))
+    setFeedback('')
+  }, [])
 
   const generatePRD = useCallback(async (idea) => {
     const ideaToUse = (idea ?? productIdea).trim()
     if (ideaToUse.length < 10) return
 
-    setLoading(true)
+    setLoadingMode('generate')
     setError(null)
+    setRefineError(null)
     setPrd(null)
 
     try {
@@ -33,13 +52,56 @@ export default function App() {
         throw new Error(data.error || 'Failed to generate PRD. Please try again.')
       }
 
-      setPrd(data)
+      acceptPrd(data, ideaToUse, 1)
     } catch (err) {
       setError(err.message || 'Something went wrong. Please try again.')
     } finally {
-      setLoading(false)
+      setLoadingMode(null)
     }
-  }, [productIdea])
+  }, [productIdea, acceptPrd])
+
+  // Human-in-the-loop: send the PM's statuses, notes and feedback back for a revised PRD.
+  // The current PRD and review stay in state, so a failed call loses nothing.
+  const refinePRD = useCallback(async () => {
+    if (!prd) return
+
+    setLoadingMode('refine')
+    setRefineError(null)
+
+    const previousPrd = {
+      ...prd,
+      assumptions: prd.assumptions.map((a, i) => ({
+        ...a,
+        status: review[i]?.status || a.status,
+        pmNote: review[i]?.note?.trim() || undefined,
+      })),
+    }
+
+    try {
+      const res = await fetch('/api/generate-prd', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productIdea: prdIdea, previousPrd, feedback: feedback.trim() }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to revise PRD. Please try again.')
+      }
+
+      acceptPrd(data, prdIdea, revision + 1)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    } catch (err) {
+      setRefineError(err.message || 'Something went wrong. Please try again.')
+    } finally {
+      setLoadingMode(null)
+    }
+  }, [prd, prdIdea, review, feedback, revision, acceptPrd])
+
+  const updateReview = useCallback((index, patch) => {
+    setReview((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)))
+  }, [])
 
   const handleExampleSelect = useCallback((example) => {
     setProductIdea(example)
@@ -50,6 +112,9 @@ export default function App() {
     setPrd(null)
     setProductIdea('')
     setError(null)
+    setRefineError(null)
+    setReview([])
+    setFeedback('')
   }, [])
 
   const handleKeyDown = (e) => {
@@ -141,7 +206,7 @@ export default function App() {
                 {loading ? (
                   <>
                     <Loader2 size={16} className="animate-spin" />
-                    Generating PRD…
+                    {loadingMode === 'refine' ? 'Revising PRD…' : 'Generating PRD…'}
                   </>
                 ) : (
                   <>
@@ -192,14 +257,24 @@ export default function App() {
 
           {/* ── Right Column: Output Panel ── */}
           <div className="min-h-[500px]">
-            {loading && <LoadingPulse />}
+            {loading && <LoadingPulse mode={loadingMode} />}
 
             {!loading && !prd && (
               <EmptyState />
             )}
 
             {!loading && prd && (
-              <PRDOutput prd={prd} onReset={handleReset} />
+              <PRDOutput
+                prd={prd}
+                revision={revision}
+                review={review}
+                onReviewChange={updateReview}
+                feedback={feedback}
+                onFeedbackChange={setFeedback}
+                onRefine={refinePRD}
+                refineError={refineError}
+                onReset={handleReset}
+              />
             )}
           </div>
 
