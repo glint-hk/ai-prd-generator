@@ -13,6 +13,11 @@ import {
   RotateCcw,
   X,
   History,
+  Network,
+  Link2,
+  Workflow,
+  Blocks,
+  AlertTriangle,
 } from 'lucide-react'
 import SectionCard from './SectionCard'
 import {
@@ -73,6 +78,31 @@ function formatPRDAsText(prd, revision, review) {
   lines.push('Pain Points:')
   prd.targetUser.painPoints.forEach((p) => lines.push(`• ${p}`))
   lines.push('')
+  const impact = prd.existingProductImpact
+  if (impact) {
+    lines.push('IMPACT ON EXISTING PRODUCT')
+    if (impact.builtOn.length) {
+      lines.push('Builds on:')
+      impact.builtOn.forEach((b) => lines.push(`• ${b}`))
+    }
+    if (impact.dependencies.length) {
+      lines.push('Dependencies:')
+      impact.dependencies.forEach((d) => lines.push(`• ${d.item}${d.impact ? `: ${d.impact}` : ''}`))
+    }
+    if (impact.affectedWorkflows.length) {
+      lines.push('Affected workflows:')
+      impact.affectedWorkflows.forEach((w) => lines.push(`• ${w.workflow}${w.change ? `: ${w.change}` : ''}`))
+    }
+    if (impact.edgeCases.length) {
+      lines.push('Edge cases:')
+      impact.edgeCases.forEach((e) => lines.push(`• ${e}`))
+    }
+    if (impact.contextGaps.length) {
+      lines.push('Confirm with engineering (not in the context provided):')
+      impact.contextGaps.forEach((g) => lines.push(`• ${g}`))
+    }
+    lines.push('')
+  }
   lines.push('CORE FEATURES')
   prd.coreFeatures.forEach((f) => {
     lines.push(`${f.priority} ${f.name}`)
@@ -212,6 +242,13 @@ export default function PRDOutput({
           </ul>
         </SectionCard>
       </AnimatedSection>
+
+      {/* ── Impact on existing product (only when context was provided) ── */}
+      {prd.existingProductImpact && (
+        <AnimatedSection delay={0.15}>
+          <ImpactCard impact={prd.existingProductImpact} />
+        </AnimatedSection>
+      )}
 
       {/* ── 4. Core Features ── */}
       <AnimatedSection delay={0.18}>
@@ -398,5 +435,88 @@ function StackItem({ label, value }) {
       <p className="text-[11px] text-zinc-600 uppercase tracking-widest">{label}</p>
       <p className="text-zinc-200 text-sm font-medium">{value}</p>
     </div>
+  )
+}
+
+function ImpactGroup({ icon: Icon, label, tone = 'text-zinc-500', children }) {
+  return (
+    <div className="space-y-2">
+      <p className={`flex items-center gap-1.5 text-[11px] uppercase tracking-widest ${tone}`}>
+        <Icon size={12} />
+        {label}
+      </p>
+      {children}
+    </div>
+  )
+}
+
+function PairList({ items, a, b }) {
+  return (
+    <ul className="space-y-2">
+      {items.map((x, i) => (
+        <li key={i} className="rounded-lg bg-zinc-950/60 border border-zinc-800/60 px-3 py-2">
+          <p className="text-zinc-200 text-[13px] font-medium">{x[a]}</p>
+          {x[b] && <p className="text-zinc-500 text-[12px] mt-0.5">{x[b]}</p>}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function BulletList({ items, dot = 'bg-indigo-400' }) {
+  return (
+    <ul className="space-y-1.5">
+      {items.map((x, i) => (
+        <li key={i} className="flex items-start gap-2.5">
+          <span className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${dot}`} />
+          <span className="text-zinc-400 text-[13px]">{x}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function ImpactCard({ impact }) {
+  return (
+    <SectionCard title="Impact on Existing Product" icon={Network}>
+      <p className="text-zinc-500 text-[12px] mb-4">
+        Based on the product context you provided. Gaps are things the PRD had to assume.
+      </p>
+      <div className="space-y-5">
+        {impact.builtOn.length > 0 && (
+          <ImpactGroup icon={Blocks} label="Builds on">
+            <div className="flex flex-wrap gap-2">
+              {impact.builtOn.map((b, i) => (
+                <span key={i} className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs">
+                  {b}
+                </span>
+              ))}
+            </div>
+          </ImpactGroup>
+        )}
+        {impact.dependencies.length > 0 && (
+          <ImpactGroup icon={Link2} label="Dependencies">
+            <PairList items={impact.dependencies} a="item" b="impact" />
+          </ImpactGroup>
+        )}
+        {impact.affectedWorkflows.length > 0 && (
+          <ImpactGroup icon={Workflow} label="Affected workflows">
+            <PairList items={impact.affectedWorkflows} a="workflow" b="change" />
+          </ImpactGroup>
+        )}
+        {impact.edgeCases.length > 0 && (
+          <ImpactGroup icon={AlertTriangle} label="Edge cases" tone="text-amber-400/80">
+            <BulletList items={impact.edgeCases} dot="bg-amber-400" />
+          </ImpactGroup>
+        )}
+        {impact.contextGaps.length > 0 && (
+          <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4">
+            <ImpactGroup icon={HelpCircle} label="Confirm with engineering" tone="text-amber-300">
+              <BulletList items={impact.contextGaps} dot="bg-amber-300" />
+            </ImpactGroup>
+          </div>
+        )}
+      </div>
+    </SectionCard>
   )
 }

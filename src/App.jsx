@@ -3,6 +3,7 @@ import { Loader2, FileText, Sparkles } from 'lucide-react'
 import PRDOutput from './components/PRDOutput'
 import LoadingPulse from './components/LoadingPulse'
 import ExamplePrompts from './components/ExamplePrompts'
+import ProductContextInput, { MAX_CONTEXT_CHARS } from './components/ProductContextInput'
 
 const MAX_DISPLAY_CHARS = 200
 
@@ -14,6 +15,8 @@ export default function App() {
   const [productIdea, setProductIdea] = useState('')
   const [prd, setPrd] = useState(null)
   const [prdIdea, setPrdIdea] = useState('')
+  const [productContext, setProductContext] = useState('')
+  const [prdContext, setPrdContext] = useState('')
   const [revision, setRevision] = useState(1)
   const [review, setReview] = useState([])
   const [feedback, setFeedback] = useState('')
@@ -22,16 +25,19 @@ export default function App() {
   const [refineError, setRefineError] = useState(null)
   const loading = loadingMode !== null
 
-  const acceptPrd = useCallback((data, idea, nextRevision) => {
+  const acceptPrd = useCallback((data, idea, context, nextRevision) => {
     setPrd(data)
     setPrdIdea(idea)
+    setPrdContext(context)
     setRevision(nextRevision)
     setReview(reviewFromPrd(data))
     setFeedback('')
   }, [])
 
-  const generatePRD = useCallback(async (idea) => {
+  // context is passed explicitly for example prompts, which have nothing to do with the user's product
+  const generatePRD = useCallback(async (idea, context) => {
     const ideaToUse = (idea ?? productIdea).trim()
+    const contextToUse = (context ?? productContext).trim()
     if (ideaToUse.length < 10) return
 
     setLoadingMode('generate')
@@ -43,7 +49,7 @@ export default function App() {
       const res = await fetch('/api/generate-prd', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productIdea: ideaToUse }),
+        body: JSON.stringify({ productIdea: ideaToUse, productContext: contextToUse || undefined }),
       })
 
       const data = await res.json()
@@ -52,13 +58,13 @@ export default function App() {
         throw new Error(data.error || 'Failed to generate PRD. Please try again.')
       }
 
-      acceptPrd(data, ideaToUse, 1)
+      acceptPrd(data, ideaToUse, contextToUse, 1)
     } catch (err) {
       setError(err.message || 'Something went wrong. Please try again.')
     } finally {
       setLoadingMode(null)
     }
-  }, [productIdea, acceptPrd])
+  }, [productIdea, productContext, acceptPrd])
 
   // Human-in-the-loop: send the PM's statuses, notes and feedback back for a revised PRD.
   // The current PRD and review stay in state, so a failed call loses nothing.
@@ -81,7 +87,12 @@ export default function App() {
       const res = await fetch('/api/generate-prd', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productIdea: prdIdea, previousPrd, feedback: feedback.trim() }),
+        body: JSON.stringify({
+          productIdea: prdIdea,
+          productContext: prdContext || undefined,
+          previousPrd,
+          feedback: feedback.trim(),
+        }),
       })
 
       const data = await res.json()
@@ -90,14 +101,14 @@ export default function App() {
         throw new Error(data.error || 'Failed to revise PRD. Please try again.')
       }
 
-      acceptPrd(data, prdIdea, revision + 1)
+      acceptPrd(data, prdIdea, prdContext, revision + 1)
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (err) {
       setRefineError(err.message || 'Something went wrong. Please try again.')
     } finally {
       setLoadingMode(null)
     }
-  }, [prd, prdIdea, review, feedback, revision, acceptPrd])
+  }, [prd, prdIdea, prdContext, review, feedback, revision, acceptPrd])
 
   const updateReview = useCallback((index, patch) => {
     setReview((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)))
@@ -105,7 +116,7 @@ export default function App() {
 
   const handleExampleSelect = useCallback((example) => {
     setProductIdea(example)
-    generatePRD(example)
+    generatePRD(example, '')
   }, [generatePRD])
 
   const handleReset = useCallback(() => {
@@ -123,7 +134,7 @@ export default function App() {
     }
   }
 
-  const isDisabled = loading || productIdea.trim().length < 10
+  const isDisabled = loading || productIdea.trim().length < 10 || productContext.trim().length > MAX_CONTEXT_CHARS
   const charCount = productIdea.length
   const charOverLimit = charCount > MAX_DISPLAY_CHARS
 
@@ -192,6 +203,8 @@ export default function App() {
                 </span>
               </div>
 
+              <ProductContextInput value={productContext} onChange={setProductContext} disabled={loading} />
+
               {/* Generate Button */}
               <button
                 onClick={() => generatePRD()}
@@ -211,7 +224,7 @@ export default function App() {
                 ) : (
                   <>
                     <Sparkles size={16} />
-                    Generate PRD
+                    {productContext.trim() ? 'Generate PRD with Context' : 'Generate PRD'}
                   </>
                 )}
               </button>

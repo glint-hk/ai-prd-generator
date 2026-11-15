@@ -46,6 +46,8 @@ The app returns a full structured document with:
 - A recommended tech stack
 - A goal for the first 2-week sprint
 
+If you're enhancing a product that already exists, open **Enhancing an existing product?** and paste (or attach as .md/.txt/.json/.yaml) what's already built: modules, workflows, data model, APIs, stack, known edge cases. The PRD then gets an **Impact on Existing Product** section covering what it builds on, its dependencies, which current workflows change, edge cases created by existing data, and gaps: anything the PRD had to assume that the context didn't confirm, to check with engineering. The context is also used when you revise the PRD.
+
 The PRD is not a one-shot output. As you learn, mark each assumption as open, validated or invalidated and add notes. A risk-level panel at the top shows how much of the plan is still unproven. When you're ready, write general feedback and click **Revise PRD with my feedback**: the AI applies your evidence (reworking anything that depended on an invalidated assumption), runs its critique again, and lists what it changed.
 
 This is built as a portfolio piece for a Fractional PM consulting practice — it demonstrates exactly what a PM deliverable looks like.
